@@ -1,113 +1,106 @@
 const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 
-// === ВЕБ-СЕРВЕР ДЛЯ RENDER (РЕШАЕТ ПРОБЛЕМУ С ПОРТОМ) ===
+// === ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ ПОРТ БЫЛ ОТКРЫТ) ===
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.get('/', (req, res) => {
-    res.send('ZUZ Clicker Bot is running ✅');
-});
+app.get('/', (req, res) => res.send('✅ ZUZ Clicker Bot is running'));
+app.listen(PORT, '0.0.0.0', () => console.log(`✅ Web server on port ${PORT}`));
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Web server (fake) listening on port ${PORT}`);
-});
-// =================================================
-
-// === ОСНОВНОЙ КОД БОТА (НЕ ИЗМЕНИЛСЯ) ===
+// === БОТ ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GAME_URL = 'https://zuz-clicker.onrender.com';
 
-// Клавиатура с командами (нижнее меню)
-const menuKeyboard = () => Markup.keyboard([
+// ГЛАВНАЯ КЛАВИАТУРА (меню под полем ввода)
+const mainMenu = () => Markup.keyboard([
     ['🎮 ИГРАТЬ', '👤 ПРОФИЛЬ'],
     ['📜 ПРАВИЛА', '👥 ПАРТНЁРЫ']
 ]).resize();
 
-// Кнопка для открытия игры
+// КНОПКА ДЛЯ ОТКРЫТИЯ ИГРЫ (inline)
 const gameButton = () => Markup.inlineKeyboard([
     [Markup.button.webApp('🎮 ОТКРЫТЬ ИГРУ', GAME_URL)]
 ]);
 
-// Команда /start
+// ========== ОБРАБОТЧИКИ ==========
 bot.start(async (ctx) => {
     await ctx.replyWithHTML(
         `✨ <b>Добро пожаловать в ZUZ Clicker!</b> ✨\n\n` +
-        `Кликай по золотой монете, чтобы копить Dust.\n` +
-        `Обменивай Dust на реальные токены ZUZ.\n\n` +
-        `👇 Нажми кнопку, чтобы начать игру:`,
+        `Кликай по монете → получай Dust.\n` +
+        `Обменивай Dust на реальные ZUZ.\n\n` +
+        `👇 Нажми кнопку, чтобы начать:`,
         gameButton()
     );
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Кнопка "ИГРАТЬ" (в нижнем меню)
+// 🎮 ИГРАТЬ
 bot.hears('🎮 ИГРАТЬ', async (ctx) => {
     await ctx.reply(`👇 Открой игру:`, gameButton());
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Кнопка "ПРОФИЛЬ"
+// 👤 ПРОФИЛЬ
 bot.hears('👤 ПРОФИЛЬ', async (ctx) => {
     const userId = ctx.from.id;
     await ctx.replyWithHTML(
-        `<b>👤 Ваш профиль</b>\n\n` +
-        `🆔 ID: ${userId}\n` +
-        `📊 Баланс ZUZ можно посмотреть в игре.\n\n` +
-        `👇 Открой игру:`,
+        `<b>👤 Твой профиль</b>\n\n` +
+        `🆔 ID: <code>${userId}</code>\n` +
+        `🎮 Игрок: ${ctx.from.first_name}\n\n` +
+        `📊 Баланс ZUZ можно посмотреть в игре.`,
         gameButton()
     );
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Кнопка "ПРАВИЛА"
+// 📜 ПРАВИЛА
 bot.hears('📜 ПРАВИЛА', async (ctx) => {
     await ctx.replyWithHTML(
-        `<b>📜 Правила игры ZUZ Clicker</b>\n\n` +
-        `• Кликай по монете — получай <b>Dust</b>\n` +
+        `<b>📜 Правила ZUZ Clicker</b>\n\n` +
+        `• Кликай по монете → получай Dust\n` +
         `• Энергия восстанавливается каждые 5 минут (макс 100)\n` +
-        `• Чем больше кликов — тем выше уровень и сильнее клик\n` +
+        `• Чем выше уровень — тем сильнее клик\n` +
         `• Ежедневный бонус — забирай каждый день!\n` +
-        `• Найди секретную зону на монете — получишь 10 000 Dust!\n` +
-        `• Покупай авто-кликер за Dust — он будет кликать за тебя\n` +
-        `• Скоро: обмен Dust на реальные токены ZUZ\n\n` +
-        `🔥 Удачи!`,
-        gameButton()
+        `• Найди секретную зону → +10 000 Dust!\n` +
+        `• Авто-кликер кликает за тебя\n` +
+        `• Скоро: обмен Dust → ZUZ`
     );
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Кнопка "ПАРТНЁРЫ"
+// 👥 ПАРТНЁРЫ
 bot.hears('👥 ПАРТНЁРЫ', async (ctx) => {
     const userId = ctx.from.id;
     const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
     await ctx.replyWithHTML(
         `<b>👥 Партнёрская программа</b>\n\n` +
-        `Приглашайте друзей и получайте <b>5%</b> от их покупок Dust/ZUZ!\n\n` +
-        `🔗 Ваша ссылка:\n<code>${refLink}</code>\n\n` +
-        `📊 Статистика появится после подключения базы данных.`,
+        `Приглашай друзей и получай <b>5%</b> от их покупок!\n\n` +
+        `🔗 Твоя ссылка:\n<code>${refLink}</code>\n\n` +
+        `📊 Статистика появится в ближайшее время.`,
         Markup.inlineKeyboard([
             [Markup.button.callback('📋 КОПИРОВАТЬ', 'copy_ref')]
         ])
     );
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Копирование реферальной ссылки
+// Копирование рефералки
 bot.action('copy_ref', async (ctx) => {
     const userId = ctx.from.id;
     const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
     await ctx.answerCbQuery();
     await ctx.reply(`🔗 <code>${refLink}</code>`, { parse_mode: 'HTML' });
-    await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 });
 
-// Если пользователь пишет любой текст — показываем меню
+// Если пользователь пишет что-то не из команд — показываем меню
 bot.on('text', async (ctx) => {
     if (!ctx.message.text.startsWith('/')) {
-        await ctx.reply(`🏠 <b>Главное меню</b>:`, { parse_mode: 'HTML', ...menuKeyboard() });
+        await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
     }
 });
 
+// Запуск
 bot.launch();
-console.log('✅ ZUZ Clicker Bot с меню и веб-сервером запущен');
+console.log('✅ ZUZ Clicker Bot с меню запущен');
