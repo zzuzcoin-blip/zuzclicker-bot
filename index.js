@@ -22,14 +22,13 @@ const gameButton = () => Markup.inlineKeyboard([
     [Markup.button.webApp('🎮 ОТКРЫТЬ ИГРУ', GAME_URL)]
 ]);
 
-// Функция отправки меню (чтобы не дублировать код)
+// Функция отправки меню
 async function sendMenu(ctx) {
     await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
 }
 
 // ========== ОБРАБОТЧИКИ ==========
 bot.start(async (ctx) => {
-    // Приветствие с кнопкой игры
     await ctx.replyWithHTML(
         `✨ <b>Добро пожаловать в ZUZ Clicker!</b> ✨\n\n` +
         `Кликай по монете → получай Dust.\n` +
@@ -37,7 +36,12 @@ bot.start(async (ctx) => {
         `👇 Нажми кнопку, чтобы начать:`,
         gameButton()
     );
-    // Обязательно отправляем меню
+    await sendMenu(ctx);
+});
+
+// КОМАНДА /menu — если меню пропало
+bot.command('menu', async (ctx) => {
+    await ctx.reply(`🔄 Восстанавливаю меню...`);
     await sendMenu(ctx);
 });
 
@@ -109,4 +113,4 @@ bot.on('text', async (ctx) => {
 
 // Запуск
 bot.launch();
-console.log('✅ ZUZ Clicker Bot с меню запущен');
+console.log('✅ ZUZ Clicker Bot с меню и командой /menu запущен');
