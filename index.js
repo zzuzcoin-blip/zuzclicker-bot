@@ -1,5 +1,20 @@
+const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 
+// === ВЕБ-СЕРВЕР ДЛЯ RENDER (РЕШАЕТ ПРОБЛЕМУ С ПОРТОМ) ===
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+    res.send('ZUZ Clicker Bot is running ✅');
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Web server (fake) listening on port ${PORT}`);
+});
+// =================================================
+
+// === ОСНОВНОЙ КОД БОТА (НЕ ИЗМЕНИЛСЯ) ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GAME_URL = 'https://zuz-clicker.onrender.com';
 
@@ -95,4 +110,4 @@ bot.on('text', async (ctx) => {
 });
 
 bot.launch();
-console.log('✅ ZUZ Clicker Bot с меню запущен');
+console.log('✅ ZUZ Clicker Bot с меню и веб-сервером запущен');
