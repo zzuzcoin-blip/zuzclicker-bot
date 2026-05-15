@@ -1,8 +1,13 @@
+require('dotenv').config();
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+
 const app = express();
+const PORT = process.env.PORT || 10000;
+
 app.use(express.json());
 
-// CORS — разрешаем запросы с любого источника
+// CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -11,77 +16,154 @@ app.use((req, res, next) => {
     next();
 });
 
-// Временное хранилище (пока без Supabase)
-const users = new Map();
+// Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// API для лидеров
-app.get('/api/leaderboard', (req, res) => {
-    const leaders = Array.from(users.values())
-        .sort((a, b) => b.total_clicks - a.total_clicks)
-        .slice(0, 10)
-        .map(u => ({ username: u.username, total_clicks: u.total_clicks, level: u.level }));
-    res.json(leaders);
-});
+// Секретная зона (маленькая)
+function getDailySecretZone() {
+    const today = new Date().toISOString().slice(0,10);
+    const hash = today.split('').reduce((a,b) => a + b.charCodeAt(0), 0);
+    return { 
+        x: 45 + (hash % 10),    // 45–54%
+        y: 45 + ((hash * 7) % 10),
+        radius: 3,               // маленький радиус
+        date: today 
+    };
+}
 
-// API для логина / регистрации
-app.post('/api/login', (req, res) => {
+// === API ===
+
+app.post('/api/login', async (req, res) => {
     const { telegram_id, username } = req.body;
-    if (!users.has(telegram_id)) {
-        users.set(telegram_id, {
-            telegram_id,
-            username: username || "Игрок",
-            balance_dust: 500,
-            energy: 100,
-            total_clicks: 0,
-            level: 1,
-            click_power: 1,
-            last_energy_refill: Math.floor(Date.now() / 1000)
-        });
-        return res.json({ ...users.get(telegram_id), isNew: true });
+    
+    let { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('telegram_id', telegram_id)
+        .maybeSingle();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    
+    if (!user) {
+        const { data: newUser, error: insertError } = await supabase
+            .from('users')
+            .insert([{ telegram_id, username, balance_dust: 500, energy: 150 }])
+            .select()
+            .single();
+        
+        if (insertError) return res.status(500).json({ error: insertError.message });
+        
+        return res.json({ ...newUser, isNew: true, secretZone: getDailySecretZone() });
     }
-    const user = users.get(telegram_id);
-    res.json({ ...user, isNew: false });
+    
+    const now = Math.floor(Date.now() / 1000);
+    const lastRefill = user.last_energy_refill || now;
+    const elapsed = Math.floor((now - lastRefill) / 60);
+    let newEnergy = Math.min(100, user.energy + elapsed);
+    
+    if (newEnergy !== user.energy) {
+        await supabase
+            .from('users')
+            .update({ energy: newEnergy, last_energy_refill: now })
+            .eq('telegram_id', telegram_id);
+        user.energy = newEnergy;
+    }
+    
+    res.json({ ...user, isNew: false, secretZone: getDailySecretZone() });
 });
 
-// API для клика
-app.post('/api/click', (req, res) => {
+app.post('/api/click', async (req, res) => {
     const { telegram_id, clickX, clickY } = req.body;
-    const user = users.get(telegram_id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
     const now = Math.floor(Date.now() / 1000);
-    const elapsed = Math.floor((now - user.last_energy_refill) / 60);
-    user.energy = Math.min(100, user.energy + elapsed);
-    user.last_energy_refill = now;
-
-    if (user.energy < 1) {
-        return res.json({ success: false, message: '⛔ Нет энергии! Подожди 5 минут' });
+    
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('telegram_id', telegram_id)
+        .single();
+    
+    if (error || !user) return res.status(404).json({ error: 'User not found' });
+    
+    // Секретная зона
+    const secretZone = getDailySecretZone();
+    const dx = Math.abs(clickX - secretZone.x);
+    const dy = Math.abs(clickY - secretZone.y);
+    const isSecretHit = dx < secretZone.radius && dy < secretZone.radius;
+    
+    let secretBonus = 0;
+    let secretMessage = '';
+    
+    if (isSecretHit && user.last_secret_click !== secretZone.date) {
+        secretBonus = 10000;
+        secretMessage = '🎉 ТЫ НАШЁЛ СЕКРЕТНУЮ ЗОНУ! +10000 DUST! 🎉';
+        await supabase
+            .from('users')
+            .update({ last_secret_click: secretZone.date })
+            .eq('telegram_id', telegram_id);
     }
-
-    user.energy -= 1;
+    
+    // Восстановление энергии
+    const lastRefill = user.last_energy_refill || now;
+    const elapsed = Math.floor((now - lastRefill) / 60);
+    let newEnergy = Math.min(100, user.energy + elapsed);
+    
+    if (newEnergy < 1) {
+        return res.json({ success: false, message: '⛔ Нет энергии! Подожди 5 минут', energy: newEnergy });
+    }
+    
+    newEnergy -= 1;
     const dustGain = user.click_power;
-    user.balance_dust += dustGain;
-    user.total_clicks += 1;
-    user.level = Math.floor(user.total_clicks / 10) + 1;
-    user.click_power = 1 + Math.floor((user.level - 1) / 10);
-
+    const newDust = user.balance_dust + dustGain + secretBonus;
+    const newTotalClicks = (user.total_clicks || 0) + 1;
+    const newLevel = Math.floor(newTotalClicks / 10) + 1;
+    const newClickPower = 1 + Math.floor((newLevel - 1) / 10);
+    
+    const { error: updateError } = await supabase
+        .from('users')
+        .update({
+            balance_dust: newDust,
+            energy: newEnergy,
+            total_clicks: newTotalClicks,
+            level: newLevel,
+            click_power: newClickPower,
+            last_energy_refill: now
+        })
+        .eq('telegram_id', telegram_id);
+    
+    if (updateError) return res.status(500).json({ error: updateError.message });
+    
     res.json({
         success: true,
-        dust: user.balance_dust,
-        energy: user.energy,
-        level: user.level,
-        clickPower: user.click_power,
-        totalClicks: user.total_clicks
+        dust: newDust,
+        energy: newEnergy,
+        level: newLevel,
+        clickPower: newClickPower,
+        totalClicks: newTotalClicks,
+        secretBonus: secretBonus,
+        secretMessage: secretMessage
     });
 });
 
-// Заглушки для остальных API (если нужны)
+app.get('/api/leaderboard', async (req, res) => {
+    const { data: leaders, error } = await supabase
+        .from('users')
+        .select('username, total_clicks, level')
+        .order('total_clicks', { ascending: false })
+        .limit(10);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(leaders);
+});
+
+// Заглушки для остальных API (чтобы не падало)
 app.post('/api/daily', (req, res) => {
-    res.json({ success: false, message: 'Ежедневный бонус пока не работает' });
+    res.json({ success: false, message: 'Ежедневный бонус временно не работает' });
 });
 
 app.post('/api/buy_auto_miner', (req, res) => {
-    res.json({ success: false, message: 'Авто-кликер пока не работает' });
+    res.json({ success: false, message: 'Авто-кликер временно не работает' });
 });
 
 const PORT = process.env.PORT || 10000;
