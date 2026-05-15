@@ -1,9 +1,10 @@
 require('dotenv').config();
 const express = require('express');
+const { Telegraf, Markup } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000; // ← только одно объявление
 
 app.use(express.json());
 
@@ -21,14 +22,14 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Секретная зона (маленькая)
+// Секретная зона
 function getDailySecretZone() {
     const today = new Date().toISOString().slice(0,10);
     const hash = today.split('').reduce((a,b) => a + b.charCodeAt(0), 0);
     return { 
-        x: 45 + (hash % 10),    // 45–54%
+        x: 45 + (hash % 10),
         y: 45 + ((hash * 7) % 10),
-        radius: 3,               // маленький радиус
+        radius: 3,
         date: today 
     };
 }
@@ -86,7 +87,6 @@ app.post('/api/click', async (req, res) => {
     
     if (error || !user) return res.status(404).json({ error: 'User not found' });
     
-    // Секретная зона
     const secretZone = getDailySecretZone();
     const dx = Math.abs(clickX - secretZone.x);
     const dy = Math.abs(clickY - secretZone.y);
@@ -104,7 +104,6 @@ app.post('/api/click', async (req, res) => {
             .eq('telegram_id', telegram_id);
     }
     
-    // Восстановление энергии
     const lastRefill = user.last_energy_refill || now;
     const elapsed = Math.floor((now - lastRefill) / 60);
     let newEnergy = Math.min(100, user.energy + elapsed);
@@ -157,7 +156,6 @@ app.get('/api/leaderboard', async (req, res) => {
     res.json(leaders);
 });
 
-// Заглушки для остальных API (чтобы не падало)
 app.post('/api/daily', (req, res) => {
     res.json({ success: false, message: 'Ежедневный бонус временно не работает' });
 });
@@ -166,7 +164,99 @@ app.post('/api/buy_auto_miner', (req, res) => {
     res.json({ success: false, message: 'Авто-кликер временно не работает' });
 });
 
-const PORT = process.env.PORT || 10000;
+// === Telegram Bot ===
+const bot = new Telegraf(process.env.BOT_TOKEN);
+const GAME_URL = process.env.GAME_URL || 'https://zuz-clicker.onrender.com';
+
+const mainMenu = () => Markup.keyboard([
+    ['🎮 ИГРАТЬ', '👤 ПРОФИЛЬ'],
+    ['📜 ПРАВИЛА', '👥 ПАРТНЁРЫ']
+]).resize();
+
+const gameButton = () => Markup.inlineKeyboard([
+    [Markup.button.webApp('🎮 ОТКРЫТЬ ИГРУ', GAME_URL)]
+]);
+
+async function sendMenu(ctx) {
+    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
+}
+
+bot.start(async (ctx) => {
+    await ctx.replyWithHTML(
+        `✨ <b>Добро пожаловать в ZUZ Clicker!</b> ✨\n\n` +
+        `Кликай по монете → получай Dust.\n` +
+        `Обменивай Dust на реальные ZUZ.\n\n` +
+        `👇 Нажми кнопку, чтобы начать:`,
+        gameButton()
+    );
+    await sendMenu(ctx);
+});
+
+bot.command('menu', async (ctx) => {
+    await ctx.reply(`🔄 Восстанавливаю меню...`);
+    await sendMenu(ctx);
+});
+
+bot.hears('🎮 ИГРАТЬ', async (ctx) => {
+    await ctx.reply(`👇 Открой игру:`, gameButton());
+    await sendMenu(ctx);
+});
+
+bot.hears('👤 ПРОФИЛЬ', async (ctx) => {
+    await ctx.replyWithHTML(
+        `<b>👤 Твой профиль</b>\n\n` +
+        `🆔 ID: <code>${ctx.from.id}</code>\n` +
+        `🎮 Игрок: ${ctx.from.first_name}\n\n` +
+        `📊 Баланс ZUZ можно посмотреть в игре.`,
+        gameButton()
+    );
+    await sendMenu(ctx);
+});
+
+bot.hears('📜 ПРАВИЛА', async (ctx) => {
+    await ctx.replyWithHTML(
+        `<b>📜 Правила ZUZ Clicker</b>\n\n` +
+        `• Кликай по монете → получай Dust\n` +
+        `• Энергия восстанавливается каждые 5 минут (макс 100)\n` +
+        `• Чем выше уровень — тем сильнее клик\n` +
+        `• Ежедневный бонус — забирай каждый день!\n` +
+        `• Найди секретную зону → +10 000 Dust!\n` +
+        `• Авто-кликер кликает за тебя\n` +
+        `• Скоро: обмен Dust → ZUZ`
+    );
+    await sendMenu(ctx);
+});
+
+bot.hears('👥 ПАРТНЁРЫ', async (ctx) => {
+    const refLink = `https://t.me/zuzclicker_bot?start=ref_${ctx.from.id}`;
+    await ctx.replyWithHTML(
+        `<b>👥 Партнёрская программа</b>\n\n` +
+        `Приглашай друзей и получай <b>5%</b> от их покупок!\n\n` +
+        `🔗 Твоя ссылка:\n<code>${refLink}</code>\n\n` +
+        `📊 Статистика появится в ближайшее время.`,
+        Markup.inlineKeyboard([
+            [Markup.button.callback('📋 КОПИРОВАТЬ', 'copy_ref')]
+        ])
+    );
+    await sendMenu(ctx);
+});
+
+bot.action('copy_ref', async (ctx) => {
+    const refLink = `https://t.me/zuzclicker_bot?start=ref_${ctx.from.id}`;
+    await ctx.answerCbQuery();
+    await ctx.reply(`🔗 <code>${refLink}</code>`, { parse_mode: 'HTML' });
+    await sendMenu(ctx);
+});
+
+bot.on('text', async (ctx) => {
+    if (!ctx.message.text.startsWith('/')) {
+        await sendMenu(ctx);
+    }
+});
+
+bot.launch();
+
+// Запуск API сервера
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ ZUZ Clicker API on port ${PORT}`);
 });
