@@ -1,23 +1,29 @@
 const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 
-// === ВЕБ-СЕРВЕР ДЛЯ RENDER ===
+// === Проверка токена (чтобы не было 401) ===
+if (!process.env.BOT_TOKEN) {
+    console.error('❌ Ошибка: переменная BOT_TOKEN не задана!');
+    process.exit(1);
+}
+
+// === Веб-сервер для Render ===
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('✅ ZUZ Clicker Bot is running'));
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ Web server on port ${PORT}`));
 
-// === БОТ ===
+// === Бот ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GAME_URL = 'https://zuz-clicker.onrender.com';
 
-// ГЛАВНАЯ КЛАВИАТУРА (меню под полем ввода)
+// Главная клавиатура (меню под полем ввода)
 const mainMenu = () => Markup.keyboard([
     ['🎮 ИГРАТЬ', '👤 ПРОФИЛЬ'],
     ['📜 ПРАВИЛА', '👥 ПАРТНЁРЫ']
 ]).resize();
 
-// КНОПКА ДЛЯ ОТКРЫТИЯ ИГРЫ (inline)
+// Кнопка для открытия игры (inline)
 const gameButton = () => Markup.inlineKeyboard([
     [Markup.button.webApp('🎮 ОТКРЫТЬ ИГРУ', GAME_URL)]
 ]);
@@ -39,19 +45,16 @@ bot.start(async (ctx) => {
     await sendMenu(ctx);
 });
 
-// КОМАНДА /menu — если меню пропало
 bot.command('menu', async (ctx) => {
     await ctx.reply(`🔄 Восстанавливаю меню...`);
     await sendMenu(ctx);
 });
 
-// 🎮 ИГРАТЬ
 bot.hears('🎮 ИГРАТЬ', async (ctx) => {
     await ctx.reply(`👇 Открой игру:`, gameButton());
     await sendMenu(ctx);
 });
 
-// 👤 ПРОФИЛЬ
 bot.hears('👤 ПРОФИЛЬ', async (ctx) => {
     const userId = ctx.from.id;
     await ctx.replyWithHTML(
@@ -64,7 +67,6 @@ bot.hears('👤 ПРОФИЛЬ', async (ctx) => {
     await sendMenu(ctx);
 });
 
-// 📜 ПРАВИЛА
 bot.hears('📜 ПРАВИЛА', async (ctx) => {
     await ctx.replyWithHTML(
         `<b>📜 Правила ZUZ Clicker</b>\n\n` +
@@ -79,7 +81,6 @@ bot.hears('📜 ПРАВИЛА', async (ctx) => {
     await sendMenu(ctx);
 });
 
-// 👥 ПАРТНЁРЫ
 bot.hears('👥 ПАРТНЁРЫ', async (ctx) => {
     const userId = ctx.from.id;
     const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
@@ -95,7 +96,6 @@ bot.hears('👥 ПАРТНЁРЫ', async (ctx) => {
     await sendMenu(ctx);
 });
 
-// Копирование рефералки
 bot.action('copy_ref', async (ctx) => {
     const userId = ctx.from.id;
     const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
@@ -111,6 +111,18 @@ bot.on('text', async (ctx) => {
     }
 });
 
-// Запуск
-bot.launch();
-console.log('✅ ZUZ Clicker Bot с меню и командой /menu запущен');
+// === Запуск бота ===
+(async () => {
+    try {
+        await bot.telegram.deleteWebhook();
+        await bot.launch();
+        console.log('✅ ZUZ Clicker Bot успешно запущен');
+    } catch (err) {
+        console.error('❌ Ошибка запуска бота:', err);
+        process.exit(1);
+    }
+})();
+
+// Корректное завершение
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
