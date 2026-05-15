@@ -1,128 +1,53 @@
+require('dotenv').config();
 const express = require('express');
-const { Telegraf, Markup } = require('telegraf');
-
-// === Проверка токена (чтобы не было 401) ===
-if (!process.env.BOT_TOKEN) {
-    console.error('❌ Ошибка: переменная BOT_TOKEN не задана!');
-    process.exit(1);
-}
-
-// === Веб-сервер для Render ===
 const app = express();
+app.use(express.json());
+
+// Тестовые данные
+const users = [
+    { telegram_id: 'test1', username: 'Sage_Leader', balance_dust: 5000, energy: 100, total_clicks: 100, level: 5, click_power: 2 }
+];
+
+// API для лидеров
+app.get('/api/leaderboard', (req, res) => {
+    res.json(users.map(u => ({ username: u.username, total_clicks: u.total_clicks, level: u.level })));
+});
+
+// API для логина
+app.post('/api/login', (req, res) => {
+    const { telegram_id, username } = req.body;
+    let user = users.find(u => u.telegram_id === telegram_id);
+    if (!user) {
+        user = { telegram_id, username, balance_dust: 500, energy: 100, total_clicks: 0, level: 1, click_power: 1 };
+        users.push(user);
+        return res.json({ ...user, isNew: true });
+    }
+    res.json({ ...user, isNew: false });
+});
+
+// API для клика
+app.post('/api/click', (req, res) => {
+    const { telegram_id } = req.body;
+    const user = users.find(u => u.telegram_id === telegram_id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    if (user.energy < 1) return res.json({ success: false, message: 'Нет энергии' });
+    
+    user.energy -= 1;
+    user.balance_dust += user.click_power;
+    user.total_clicks += 1;
+    user.level = Math.floor(user.total_clicks / 10) + 1;
+    user.click_power = 1 + Math.floor((user.level - 1) / 10);
+    
+    res.json({
+        success: true,
+        dust: user.balance_dust,
+        energy: user.energy,
+        level: user.level,
+        clickPower: user.click_power,
+        totalClicks: user.total_clicks
+    });
+});
+
 const PORT = process.env.PORT || 10000;
-app.get('/', (req, res) => res.send('✅ ZUZ Clicker Bot is running'));
-app.listen(PORT, '0.0.0.0', () => console.log(`✅ Web server on port ${PORT}`));
-
-// === Бот ===
-const bot = new Telegraf(process.env.BOT_TOKEN);
-const GAME_URL = 'https://zuz-clicker.onrender.com';
-
-// Главная клавиатура (меню под полем ввода)
-const mainMenu = () => Markup.keyboard([
-    ['🎮 ИГРАТЬ', '👤 ПРОФИЛЬ'],
-    ['📜 ПРАВИЛА', '👥 ПАРТНЁРЫ']
-]).resize();
-
-// Кнопка для открытия игры (inline)
-const gameButton = () => Markup.inlineKeyboard([
-    [Markup.button.webApp('🎮 ОТКРЫТЬ ИГРУ', GAME_URL)]
-]);
-
-// Функция отправки меню
-async function sendMenu(ctx) {
-    await ctx.reply(`🏠 *Главное меню:*`, { parse_mode: 'Markdown', ...mainMenu() });
-}
-
-// ========== ОБРАБОТЧИКИ ==========
-bot.start(async (ctx) => {
-    await ctx.replyWithHTML(
-        `✨ <b>Добро пожаловать в ZUZ Clicker!</b> ✨\n\n` +
-        `Кликай по монете → получай Dust.\n` +
-        `Обменивай Dust на реальные ZUZ.\n\n` +
-        `👇 Нажми кнопку, чтобы начать:`,
-        gameButton()
-    );
-    await sendMenu(ctx);
-});
-
-bot.command('menu', async (ctx) => {
-    await ctx.reply(`🔄 Восстанавливаю меню...`);
-    await sendMenu(ctx);
-});
-
-bot.hears('🎮 ИГРАТЬ', async (ctx) => {
-    await ctx.reply(`👇 Открой игру:`, gameButton());
-    await sendMenu(ctx);
-});
-
-bot.hears('👤 ПРОФИЛЬ', async (ctx) => {
-    const userId = ctx.from.id;
-    await ctx.replyWithHTML(
-        `<b>👤 Твой профиль</b>\n\n` +
-        `🆔 ID: <code>${userId}</code>\n` +
-        `🎮 Игрок: ${ctx.from.first_name}\n\n` +
-        `📊 Баланс ZUZ можно посмотреть в игре.`,
-        gameButton()
-    );
-    await sendMenu(ctx);
-});
-
-bot.hears('📜 ПРАВИЛА', async (ctx) => {
-    await ctx.replyWithHTML(
-        `<b>📜 Правила ZUZ Clicker</b>\n\n` +
-        `• Кликай по монете → получай Dust\n` +
-        `• Энергия восстанавливается каждые 5 минут (макс 100)\n` +
-        `• Чем выше уровень — тем сильнее клик\n` +
-        `• Ежедневный бонус — забирай каждый день!\n` +
-        `• Найди секретную зону → +10 000 Dust!\n` +
-        `• Авто-кликер кликает за тебя\n` +
-        `• Скоро: обмен Dust → ZUZ`
-    );
-    await sendMenu(ctx);
-});
-
-bot.hears('👥 ПАРТНЁРЫ', async (ctx) => {
-    const userId = ctx.from.id;
-    const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
-    await ctx.replyWithHTML(
-        `<b>👥 Партнёрская программа</b>\n\n` +
-        `Приглашай друзей и получай <b>5%</b> от их покупок!\n\n` +
-        `🔗 Твоя ссылка:\n<code>${refLink}</code>\n\n` +
-        `📊 Статистика появится в ближайшее время.`,
-        Markup.inlineKeyboard([
-            [Markup.button.callback('📋 КОПИРОВАТЬ', 'copy_ref')]
-        ])
-    );
-    await sendMenu(ctx);
-});
-
-bot.action('copy_ref', async (ctx) => {
-    const userId = ctx.from.id;
-    const refLink = `https://t.me/zuzclicker_bot?start=ref_${userId}`;
-    await ctx.answerCbQuery();
-    await ctx.reply(`🔗 <code>${refLink}</code>`, { parse_mode: 'HTML' });
-    await sendMenu(ctx);
-});
-
-// Если пользователь пишет что-то не из команд — показываем меню
-bot.on('text', async (ctx) => {
-    if (!ctx.message.text.startsWith('/')) {
-        await sendMenu(ctx);
-    }
-});
-
-// === Запуск бота ===
-(async () => {
-    try {
-        await bot.telegram.deleteWebhook();
-        await bot.launch();
-        console.log('✅ ZUZ Clicker Bot успешно запущен');
-    } catch (err) {
-        console.error('❌ Ошибка запуска бота:', err);
-        process.exit(1);
-    }
-})();
-
-// Корректное завершение
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+app.listen(PORT, () => console.log(`✅ API запущен на порту ${PORT}`));
